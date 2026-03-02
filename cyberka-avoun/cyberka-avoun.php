@@ -15,13 +15,30 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Configuration Keycloak — tout est embarqué, aucune configuration WordPress requise.
- * Adapter ci‑dessous si votre realm / client Keycloak diffère.
+ * Configuration Keycloak embarquée (serveur et realm).
+ * Client ID et Client Secret sont configurés dans Réglages → Cyberka Avoun.
  */
-define( 'CYBERKA_AVOUN_KEYCLOAK_BASE', 'https://ori.cyberka.com/auth' );
-define( 'CYBERKA_AVOUN_REALM', 'cyberka' );
-define( 'CYBERKA_AVOUN_CLIENT_ID', 'wordpress-avoun' );
-define( 'CYBERKA_AVOUN_CLIENT_SECRET', '' ); // Laisser vide pour client public Keycloak
+define( 'CYBERKA_AVOUN_KEYCLOAK_BASE', 'https://avoun.cyberka.com/auth' );
+define( 'CYBERKA_AVOUN_REALM', 'avoun' );
+
+/** Option name pour les réglages (client_id + client_secret). */
+define( 'CYBERKA_AVOUN_OPTION', 'cyberka_avoun_settings' );
+
+/**
+ * Retourne le Client ID (saisi dans le backoffice).
+ */
+function cyberka_avoun_get_client_id() {
+	$opts = get_option( CYBERKA_AVOUN_OPTION, array() );
+	return isset( $opts['client_id'] ) ? (string) $opts['client_id'] : '';
+}
+
+/**
+ * Retourne le Client Secret (saisi dans le backoffice).
+ */
+function cyberka_avoun_get_client_secret() {
+	$opts = get_option( CYBERKA_AVOUN_OPTION, array() );
+	return isset( $opts['client_secret'] ) ? (string) $opts['client_secret'] : '';
+}
 
 /**
  * Retourne l'URL de redirection OAuth (callback).
@@ -66,13 +83,18 @@ function cyberka_avoun_login_init() {
 		exit;
 	}
 
+	// SSO désactivé si Client ID non configuré
+	if ( cyberka_avoun_get_client_id() === '' ) {
+		return;
+	}
+
 	// Démarrer le flux SSO : redirection vers Keycloak
 	$state = wp_generate_password( 32, true, true );
 	set_transient( 'cyberka_avoun_state_' . $state, array( 'time' => time() ), 600 );
 	$endpoints = cyberka_avoun_get_endpoints();
 	$params = array(
 		'response_type' => 'code',
-		'client_id'     => CYBERKA_AVOUN_CLIENT_ID,
+		'client_id'     => cyberka_avoun_get_client_id(),
 		'redirect_uri'  => cyberka_avoun_get_redirect_uri(),
 		'scope'         => 'openid email profile',
 		'state'         => $state,
@@ -124,10 +146,11 @@ function cyberka_avoun_handle_callback() {
 		'grant_type'    => 'authorization_code',
 		'code'          => $code,
 		'redirect_uri'  => cyberka_avoun_get_redirect_uri(),
-		'client_id'     => CYBERKA_AVOUN_CLIENT_ID,
+		'client_id'     => cyberka_avoun_get_client_id(),
 	);
-	if ( CYBERKA_AVOUN_CLIENT_SECRET !== '' ) {
-		$body['client_secret'] = CYBERKA_AVOUN_CLIENT_SECRET;
+	$secret = cyberka_avoun_get_client_secret();
+	if ( $secret !== '' ) {
+		$body['client_secret'] = $secret;
 	}
 
 	$response = wp_remote_post(
@@ -286,10 +309,126 @@ function cyberka_avoun_logout_redirect() {
 	$url = add_query_arg(
 		array(
 			'post_logout_redirect_uri' => $redirect,
-			'client_id'               => CYBERKA_AVOUN_CLIENT_ID,
+			'client_id'               => cyberka_avoun_get_client_id(),
 		),
 		$endpoints['logout']
 	);
 	wp_safe_redirect( $url );
 	exit;
+}
+
+/**
+ * Page de réglages Cyberka Avoun (Client ID et Client Secret).
+ */
+add_action( 'admin_menu', 'cyberka_avoun_admin_menu' );
+add_action( 'admin_init', 'cyberka_avoun_register_settings' );
+add_action( 'admin_notices', 'cyberka_avoun_admin_notice' );
+
+function cyberka_avoun_admin_notice() {
+	$screen = get_current_screen();
+	if ( ! $screen || $screen->id === 'settings_page_cyberka-avoun' ) {
+		return;
+	}
+	if ( cyberka_avoun_get_client_id() !== '' ) {
+		return;
+	}
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+	$url = admin_url( 'options-general.php?page=cyberka-avoun' );
+	printf(
+		'<div class="notice notice-warning is-dismissible"><p>%s <a href="%s">%s</a>.</p></div>',
+		esc_html__( 'Cyberka Avoun : configurez le Client ID pour activer le SSO Keycloak.', 'cyberka-avoun' ),
+		esc_url( $url ),
+		esc_html__( 'Configurer', 'cyberka-avoun' )
+	);
+}
+
+function cyberka_avoun_admin_menu() {
+	add_options_page(
+		__( 'Cyberka Avoun', 'cyberka-avoun' ),
+		__( 'Cyberka Avoun', 'cyberka-avoun' ),
+		'manage_options',
+		'cyberka-avoun',
+		'cyberka_avoun_settings_page'
+	);
+}
+
+function cyberka_avoun_register_settings() {
+	register_setting(
+		'cyberka_avoun_settings_group',
+		CYBERKA_AVOUN_OPTION,
+		array(
+			'type'              => 'array',
+			'sanitize_callback' => 'cyberka_avoun_sanitize_settings',
+		)
+	);
+}
+
+function cyberka_avoun_sanitize_settings( $input ) {
+	$out = array(
+		'client_id'     => '',
+		'client_secret' => '',
+	);
+	if ( ! is_array( $input ) ) {
+		return $out;
+	}
+	if ( isset( $input['client_id'] ) && is_string( $input['client_id'] ) ) {
+		$out['client_id'] = sanitize_text_field( $input['client_id'] );
+	}
+	if ( isset( $input['client_secret'] ) && is_string( $input['client_secret'] ) ) {
+		$out['client_secret'] = $input['client_secret']; // Garder tel quel (peut contenir caractères spéciaux)
+	}
+	return $out;
+}
+
+function cyberka_avoun_settings_page() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+	$opts = get_option( CYBERKA_AVOUN_OPTION, array() );
+	$client_id     = isset( $opts['client_id'] ) ? $opts['client_id'] : '';
+	$client_secret = isset( $opts['client_secret'] ) ? $opts['client_secret'] : '';
+	?>
+	<div class="wrap">
+		<h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
+		<p><?php esc_html_e( 'Configurez les identifiants du client Keycloak pour le SSO du backoffice. Sans Client ID, la connexion WordPress classique reste disponible.', 'cyberka-avoun' ); ?></p>
+
+		<form action="options.php" method="post">
+			<?php settings_fields( 'cyberka_avoun_settings_group' ); ?>
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row">
+						<label for="cyberka_avoun_client_id"><?php esc_html_e( 'Client ID', 'cyberka-avoun' ); ?></label>
+					</th>
+					<td>
+						<input type="text" name="<?php echo esc_attr( CYBERKA_AVOUN_OPTION ); ?>[client_id]" id="cyberka_avoun_client_id" value="<?php echo esc_attr( $client_id ); ?>" class="regular-text" autocomplete="off" />
+						<p class="description"><?php printf( esc_html__( 'Identifiant du client configuré dans Keycloak (realm : %s).', 'cyberka-avoun' ), '<code>' . esc_html( CYBERKA_AVOUN_REALM ) . '</code>' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="cyberka_avoun_client_secret"><?php esc_html_e( 'Client Secret', 'cyberka-avoun' ); ?></label>
+					</th>
+					<td>
+						<input type="password" name="<?php echo esc_attr( CYBERKA_AVOUN_OPTION ); ?>[client_secret]" id="cyberka_avoun_client_secret" value="<?php echo esc_attr( $client_secret ); ?>" class="regular-text" autocomplete="off" />
+						<p class="description"><?php esc_html_e( 'Secret du client (laisser vide si le client Keycloak est en mode public).', 'cyberka-avoun' ); ?></p>
+					</td>
+				</tr>
+			</table>
+			<?php submit_button( __( 'Enregistrer les réglages', 'cyberka-avoun' ) ); ?>
+		</form>
+
+		<hr />
+		<p class="description">
+			<?php
+			printf(
+				/* translators: %s: URL de callback */
+				esc_html__( 'URL de redirection à déclarer dans Keycloak (Valid Redirect URIs) : %s', 'cyberka-avoun' ),
+				'<code>' . esc_html( cyberka_avoun_get_redirect_uri() ) . '</code>'
+			);
+			?>
+		</p>
+	</div>
+	<?php
 }
