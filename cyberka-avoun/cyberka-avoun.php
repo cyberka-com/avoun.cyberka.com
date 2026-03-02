@@ -42,12 +42,17 @@ function cyberka_avoun_get_client_secret() {
 
 /**
  * Retourne l'URL de redirection OAuth (callback).
- * Toujours basée sur wp-login.php (ignorer les pages de connexion personnalisées).
+ * Toujours wp-login.php, sans passer par les filtres (plugins de page de connexion custom).
  */
 function cyberka_avoun_get_redirect_uri() {
+	$base = untrailingslashit( get_option( 'siteurl', '' ) );
+	if ( $base === '' ) {
+		$base = ( is_ssl() ? 'https://' : 'http://' ) . ( isset( $_SERVER['HTTP_HOST'] ) ? wp_unslash( $_SERVER['HTTP_HOST'] ) : 'localhost' );
+	}
+	$login_script = $base . '/wp-login.php';
 	return add_query_arg(
 		array( 'action' => 'cyberka_avoun_callback' ),
-		site_url( 'wp-login.php', 'login' )
+		$login_script
 	);
 }
 
