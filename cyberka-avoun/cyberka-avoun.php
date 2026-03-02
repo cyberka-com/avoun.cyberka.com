@@ -42,9 +42,13 @@ function cyberka_avoun_get_client_secret() {
 
 /**
  * Retourne l'URL de redirection OAuth (callback).
- * Toujours wp-login.php, sans passer par les filtres (plugins de page de connexion custom).
+ * Utilise l'option "callback_url" si renseignée, sinon construit à partir de siteurl + wp-login.php.
  */
 function cyberka_avoun_get_redirect_uri() {
+	$custom = cyberka_avoun_get_callback_url();
+	if ( $custom !== '' ) {
+		return $custom;
+	}
 	$base = untrailingslashit( get_option( 'siteurl', '' ) );
 	if ( $base === '' ) {
 		$base = ( is_ssl() ? 'https://' : 'http://' ) . ( isset( $_SERVER['HTTP_HOST'] ) ? wp_unslash( $_SERVER['HTTP_HOST'] ) : 'localhost' );
@@ -54,6 +58,22 @@ function cyberka_avoun_get_redirect_uri() {
 		array( 'action' => 'cyberka_avoun_callback' ),
 		$login_script
 	);
+}
+
+/**
+ * URL de callback personnalisée (option). Si vide, on utilise siteurl + wp-login.php.
+ */
+function cyberka_avoun_get_callback_url() {
+	$opts = get_option( CYBERKA_AVOUN_OPTION, array() );
+	$url  = isset( $opts['callback_url'] ) ? trim( (string) $opts['callback_url'] ) : '';
+	if ( $url === '' ) {
+		return '';
+	}
+	// S'assurer que l'action est dans l'URL
+	if ( strpos( $url, 'action=cyberka_avoun_callback' ) === false ) {
+		$url = add_query_arg( array( 'action' => 'cyberka_avoun_callback' ), $url );
+	}
+	return $url;
 }
 
 /**
@@ -480,6 +500,7 @@ function cyberka_avoun_sanitize_settings( $input ) {
 		'client_id'        => '',
 		'client_secret'    => '',
 		'login_page_slug'  => '',
+		'callback_url'     => '',
 	);
 	if ( ! is_array( $input ) ) {
 		return $out;
@@ -493,6 +514,9 @@ function cyberka_avoun_sanitize_settings( $input ) {
 	if ( isset( $input['login_page_slug'] ) && is_string( $input['login_page_slug'] ) ) {
 		$out['login_page_slug'] = sanitize_title( $input['login_page_slug'] );
 	}
+	if ( isset( $input['callback_url'] ) && is_string( $input['callback_url'] ) ) {
+		$out['callback_url'] = esc_url_raw( trim( $input['callback_url'] ), array( 'https', 'http' ) );
+	}
 	return $out;
 }
 
@@ -504,6 +528,7 @@ function cyberka_avoun_settings_page() {
 	$client_id       = isset( $opts['client_id'] ) ? $opts['client_id'] : '';
 	$client_secret   = isset( $opts['client_secret'] ) ? $opts['client_secret'] : '';
 	$login_page_slug = isset( $opts['login_page_slug'] ) ? $opts['login_page_slug'] : '';
+	$callback_url    = isset( $opts['callback_url'] ) ? $opts['callback_url'] : '';
 	?>
 	<div class="wrap">
 		<h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
@@ -537,6 +562,15 @@ function cyberka_avoun_settings_page() {
 					<td>
 						<input type="text" name="<?php echo esc_attr( CYBERKA_AVOUN_OPTION ); ?>[login_page_slug]" id="cyberka_avoun_login_page_slug" value="<?php echo esc_attr( $login_page_slug ); ?>" class="regular-text" placeholder="8d0s3x6ds" />
 						<p class="description"><?php esc_html_e( 'Slug de la page WordPress utilisée comme écran de connexion. Si renseigné, une visite sur cette page redirige vers Keycloak (via wp-login.php). Ex. : 8d0s3x6ds', 'cyberka-avoun' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="cyberka_avoun_callback_url"><?php esc_html_e( 'URL de callback (optionnel)', 'cyberka-avoun' ); ?></label>
+					</th>
+					<td>
+						<input type="url" name="<?php echo esc_attr( CYBERKA_AVOUN_OPTION ); ?>[callback_url]" id="cyberka_avoun_callback_url" value="<?php echo esc_attr( $callback_url ); ?>" class="large-text" placeholder="https://www.cyberka.com/8d0s3x6ds/wp-login.php" />
+						<p class="description"><?php esc_html_e( 'Si le site est accessible sous un chemin (ex. /8d0s3x6ds/) et que l\'URL par défaut renvoie une 404, indiquez ici l\'URL complète de wp-login.php (sans ?action=...). Ex. : https://www.cyberka.com/8d0s3x6ds/wp-login.php', 'cyberka-avoun' ); ?></p>
 					</td>
 				</tr>
 			</table>
