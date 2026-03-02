@@ -125,17 +125,18 @@ function cyberka_avoun_build_authorization_url() {
 }
 
 /**
- * Intercepter les requêtes où l'URL OAuth a été construite avec la page custom comme base
- * (ex. 8d0s3x6ds/?response_type=code&client_id=...&redirect_uri=...) et rediriger vers Keycloak.
+ * Intercepter très tôt les requêtes où l'URL OAuth a été construite avec une page du site comme base
+ * (ex. /8d0s3x6ds/?response_type=code&client_id=...&redirect_uri=...) et rediriger vers Keycloak.
+ * Hook plugins_loaded priorité 0 pour s'exécuter avant toute 404 ou autre traitement.
  */
-add_action( 'parse_request', 'cyberka_avoun_fix_wrong_oauth_base', 1 );
+add_action( 'plugins_loaded', 'cyberka_avoun_fix_wrong_oauth_base', 0 );
 
-function cyberka_avoun_fix_wrong_oauth_base( $wp ) {
-	if ( is_user_logged_in() || cyberka_avoun_get_client_id() === '' ) {
+function cyberka_avoun_fix_wrong_oauth_base() {
+	// Paramètres OAuth = quelqu'un a construit l'URL d'auth avec notre domaine comme base (erreur)
+	if ( ! isset( $_GET['response_type'] ) || ! isset( $_GET['client_id'] ) || $_GET['response_type'] !== 'code' ) {
 		return;
 	}
-	$slug = cyberka_avoun_get_login_page_slug();
-	if ( $slug === '' ) {
+	if ( is_user_logged_in() || cyberka_avoun_get_client_id() === '' ) {
 		return;
 	}
 	$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '';
@@ -144,19 +145,25 @@ function cyberka_avoun_fix_wrong_oauth_base( $wp ) {
 		$path = '';
 	}
 	$path = trim( $path, '/' );
-	// Vérifier si on est sur la page custom (slug dans le chemin : /8d0s3x6ds ou /xxx/8d0s3x6ds)
-	$on_custom_page = ( $path === $slug || strpos( $path, $slug . '/' ) === 0 || substr( $path, -strlen( $slug ) - 1 ) === '/' . $slug );
-	if ( ! $on_custom_page ) {
+	// Ne jamais intercepter wp-login.php (c'est notre callback légitime)
+	if ( $path === 'wp-login.php' || strpos( $path, 'wp-login.php' ) !== false ) {
 		return;
 	}
-	// Si les paramètres OAuth sont présents, l'URL a été mal construite (base = page au lieu de Keycloak)
-	$has_oauth_params = isset( $_GET['response_type'] ) && isset( $_GET['client_id'] );
-	if ( $has_oauth_params ) {
-		$url = cyberka_avoun_build_authorization_url();
-		if ( $url ) {
-			wp_redirect( $url );
-			exit;
-		}
+	$slug = cyberka_avoun_get_login_page_slug();
+	$on_wrong_base = false;
+	if ( $slug !== '' ) {
+		$on_wrong_base = ( $path === $slug || strpos( $path, $slug . '/' ) === 0 || substr( $path, -strlen( $slug ) - 1 ) === '/' . $slug );
+	} else {
+		// Slug non configuré : intercepter si redirect_uri dans l'URL pointe vers wp-login.php (params OAuth mal ciblés)
+		$on_wrong_base = ( $path !== '' && isset( $_GET['redirect_uri'] ) && strpos( wp_unslash( $_GET['redirect_uri'] ), 'wp-login.php' ) !== false );
+	}
+	if ( ! $on_wrong_base ) {
+		return;
+	}
+	$url = cyberka_avoun_build_authorization_url();
+	if ( $url ) {
+		wp_redirect( $url );
+		exit;
 	}
 }
 
