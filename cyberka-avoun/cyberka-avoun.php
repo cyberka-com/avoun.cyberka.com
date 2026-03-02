@@ -42,11 +42,12 @@ function cyberka_avoun_get_client_secret() {
 
 /**
  * Retourne l'URL de redirection OAuth (callback).
+ * Toujours basée sur wp-login.php (ignorer les pages de connexion personnalisées).
  */
 function cyberka_avoun_get_redirect_uri() {
 	return add_query_arg(
 		array( 'action' => 'cyberka_avoun_callback' ),
-		wp_login_url()
+		site_url( 'wp-login.php', 'login' )
 	);
 }
 
