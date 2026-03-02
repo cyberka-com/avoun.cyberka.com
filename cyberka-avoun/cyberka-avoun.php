@@ -89,8 +89,9 @@ function cyberka_avoun_login_init() {
 	}
 
 	// Démarrer le flux SSO : redirection vers Keycloak
-	$state = wp_generate_password( 32, true, true );
-	set_transient( 'cyberka_avoun_state_' . $state, array( 'time' => time() ), 600 );
+	// State alphanumérique uniquement pour éviter les soucis d'encodage URL (+, %, etc.)
+	$state = wp_generate_password( 32, false, false );
+	set_transient( 'cyberka_avoun_state_' . $state, array( 'time' => time() ), 900 );
 	$endpoints = cyberka_avoun_get_endpoints();
 	$params = array(
 		'response_type' => 'code',
@@ -134,8 +135,11 @@ function cyberka_avoun_handle_callback() {
 	$stored = get_transient( 'cyberka_avoun_state_' . $state );
 	delete_transient( 'cyberka_avoun_state_' . $state );
 	if ( ! $stored ) {
+		$login_url = wp_login_url();
 		wp_die(
-			__( 'Session invalide ou expirée. Veuillez réessayer.', 'cyberka-avoun' ),
+			__( 'Session invalide ou expirée. Veuillez réessayer.', 'cyberka-avoun' )
+			. '<br><br><a href="' . esc_url( $login_url ) . '">' . esc_html__( 'Réessayer la connexion', 'cyberka-avoun' ) . '</a>'
+			. '<br><br><em>' . esc_html__( 'Si le problème persiste, vérifiez que l’URL de redirection dans Keycloak correspond exactement à celle indiquée dans Réglages → Cyberka Avoun (même domaine, avec ou sans www).', 'cyberka-avoun' ) . '</em>',
 			__( 'Erreur d\'authentification', 'cyberka-avoun' ),
 			array( 'response' => 400 )
 		);
