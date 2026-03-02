@@ -323,6 +323,13 @@ function cyberka_avoun_logout_redirect() {
 add_action( 'admin_menu', 'cyberka_avoun_admin_menu' );
 add_action( 'admin_init', 'cyberka_avoun_register_settings' );
 add_action( 'admin_notices', 'cyberka_avoun_admin_notice' );
+add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), 'cyberka_avoun_plugin_action_links' );
+
+function cyberka_avoun_plugin_action_links( $links ) {
+	$url = admin_url( 'options-general.php?page=cyberka-avoun' );
+	$links[] = '<a href="' . esc_url( $url ) . '">' . esc_html__( 'Réglages', 'cyberka-avoun' ) . '</a>';
+	return $links;
+}
 
 function cyberka_avoun_admin_notice() {
 	$screen = get_current_screen();
