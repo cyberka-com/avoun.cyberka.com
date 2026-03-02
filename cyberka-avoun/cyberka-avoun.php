@@ -42,12 +42,17 @@ function cyberka_avoun_get_client_secret() {
 
 /**
  * Retourne l'URL de redirection OAuth (callback).
- * Utilise l'option "callback_url" si renseignée, sinon construit à partir de siteurl + wp-login.php.
+ * Priorité : option callback_url > page de connexion personnalisée (slug) > siteurl + wp-login.php.
  */
 function cyberka_avoun_get_redirect_uri() {
 	$custom = cyberka_avoun_get_callback_url();
 	if ( $custom !== '' ) {
 		return $custom;
+	}
+	$slug = cyberka_avoun_get_login_page_slug();
+	if ( $slug !== '' ) {
+		$page_url = home_url( '/' . $slug . '/' );
+		return add_query_arg( array( 'action' => 'cyberka_avoun_callback' ), $page_url );
 	}
 	$base = untrailingslashit( get_option( 'siteurl', '' ) );
 	if ( $base === '' ) {
@@ -226,8 +231,25 @@ function cyberka_avoun_get_login_page_slug() {
 
 /**
  * Traiter le retour Keycloak (callback).
+ * Déclenché soit par wp-login.php?action=cyberka_avoun_callback, soit par la page personnalisée (slug).
  */
 add_action( 'login_form_cyberka_avoun_callback', 'cyberka_avoun_handle_callback' );
+add_action( 'template_redirect', 'cyberka_avoun_maybe_handle_callback_on_custom_page', 1 );
+
+function cyberka_avoun_maybe_handle_callback_on_custom_page() {
+	$slug = cyberka_avoun_get_login_page_slug();
+	if ( $slug === '' || ! is_page( $slug ) ) {
+		return;
+	}
+	if ( ! isset( $_GET['action'] ) || $_GET['action'] !== 'cyberka_avoun_callback' ) {
+		return;
+	}
+	if ( ! isset( $_GET['code'] ) || ! isset( $_GET['state'] ) ) {
+		return;
+	}
+	cyberka_avoun_handle_callback();
+	exit;
+}
 
 function cyberka_avoun_handle_callback() {
 	$code  = isset( $_GET['code'] ) ? sanitize_text_field( wp_unslash( $_GET['code'] ) ) : '';
