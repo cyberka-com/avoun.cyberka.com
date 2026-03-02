@@ -94,8 +94,23 @@ function cyberka_avoun_login_init() {
 		return;
 	}
 
-	// Démarrer le flux SSO : redirection vers Keycloak
-	// State alphanumérique uniquement pour éviter les soucis d'encodage URL (+, %, etc.)
+	$url = cyberka_avoun_build_authorization_url();
+	if ( $url ) {
+		wp_redirect( $url );
+		exit;
+	}
+}
+
+/**
+ * Construit l'URL complète vers Keycloak (auth + state + redirect_uri).
+ * Utilisable depuis une page custom : rediriger vers cette URL au lieu de construire l'URL soi-même.
+ *
+ * @return string|false URL Keycloak ou false si Client ID non configuré.
+ */
+function cyberka_avoun_build_authorization_url() {
+	if ( cyberka_avoun_get_client_id() === '' ) {
+		return false;
+	}
 	$state = wp_generate_password( 32, false, false );
 	set_transient( 'cyberka_avoun_state_' . $state, array( 'time' => time() ), 900 );
 	$endpoints = cyberka_avoun_get_endpoints();
@@ -106,9 +121,40 @@ function cyberka_avoun_login_init() {
 		'scope'         => 'openid email profile',
 		'state'         => $state,
 	);
-	$url = add_query_arg( $params, $endpoints['authorization'] );
-	wp_redirect( $url );
+	return add_query_arg( $params, $endpoints['authorization'] );
+}
+
+/**
+ * Si une page de connexion personnalisée est configurée, rediriger vers wp-login.php
+ * pour que le flux SSO parte bien vers Keycloak (et non vers 8d0s3x6ds/?params).
+ */
+add_action( 'template_redirect', 'cyberka_avoun_redirect_custom_login_page', 5 );
+
+function cyberka_avoun_redirect_custom_login_page() {
+	if ( is_user_logged_in() || cyberka_avoun_get_client_id() === '' ) {
+		return;
+	}
+	$slug = cyberka_avoun_get_login_page_slug();
+	if ( $slug === '' ) {
+		return;
+	}
+	if ( ! is_page( $slug ) ) {
+		return;
+	}
+	$wp_login = untrailingslashit( get_option( 'siteurl', '' ) ) . '/wp-login.php';
+	if ( $wp_login === '' ) {
+		return;
+	}
+	wp_safe_redirect( $wp_login );
 	exit;
+}
+
+/**
+ * Retourne le slug de la page de connexion personnalisée (option).
+ */
+function cyberka_avoun_get_login_page_slug() {
+	$opts = get_option( CYBERKA_AVOUN_OPTION, array() );
+	return isset( $opts['login_page_slug'] ) ? sanitize_title( $opts['login_page_slug'] ) : '';
 }
 
 /**
@@ -384,8 +430,9 @@ function cyberka_avoun_register_settings() {
 
 function cyberka_avoun_sanitize_settings( $input ) {
 	$out = array(
-		'client_id'     => '',
-		'client_secret' => '',
+		'client_id'        => '',
+		'client_secret'    => '',
+		'login_page_slug'  => '',
 	);
 	if ( ! is_array( $input ) ) {
 		return $out;
@@ -394,7 +441,10 @@ function cyberka_avoun_sanitize_settings( $input ) {
 		$out['client_id'] = sanitize_text_field( $input['client_id'] );
 	}
 	if ( isset( $input['client_secret'] ) && is_string( $input['client_secret'] ) ) {
-		$out['client_secret'] = $input['client_secret']; // Garder tel quel (peut contenir caractères spéciaux)
+		$out['client_secret'] = $input['client_secret'];
+	}
+	if ( isset( $input['login_page_slug'] ) && is_string( $input['login_page_slug'] ) ) {
+		$out['login_page_slug'] = sanitize_title( $input['login_page_slug'] );
 	}
 	return $out;
 }
@@ -404,8 +454,9 @@ function cyberka_avoun_settings_page() {
 		return;
 	}
 	$opts = get_option( CYBERKA_AVOUN_OPTION, array() );
-	$client_id     = isset( $opts['client_id'] ) ? $opts['client_id'] : '';
-	$client_secret = isset( $opts['client_secret'] ) ? $opts['client_secret'] : '';
+	$client_id       = isset( $opts['client_id'] ) ? $opts['client_id'] : '';
+	$client_secret   = isset( $opts['client_secret'] ) ? $opts['client_secret'] : '';
+	$login_page_slug = isset( $opts['login_page_slug'] ) ? $opts['login_page_slug'] : '';
 	?>
 	<div class="wrap">
 		<h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
@@ -430,6 +481,15 @@ function cyberka_avoun_settings_page() {
 					<td>
 						<input type="password" name="<?php echo esc_attr( CYBERKA_AVOUN_OPTION ); ?>[client_secret]" id="cyberka_avoun_client_secret" value="<?php echo esc_attr( $client_secret ); ?>" class="regular-text" autocomplete="off" />
 						<p class="description"><?php esc_html_e( 'Secret du client (laisser vide si le client Keycloak est en mode public).', 'cyberka-avoun' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="cyberka_avoun_login_page_slug"><?php esc_html_e( 'Page de connexion personnalisée', 'cyberka-avoun' ); ?></label>
+					</th>
+					<td>
+						<input type="text" name="<?php echo esc_attr( CYBERKA_AVOUN_OPTION ); ?>[login_page_slug]" id="cyberka_avoun_login_page_slug" value="<?php echo esc_attr( $login_page_slug ); ?>" class="regular-text" placeholder="8d0s3x6ds" />
+						<p class="description"><?php esc_html_e( 'Slug de la page WordPress utilisée comme écran de connexion. Si renseigné, une visite sur cette page redirige vers Keycloak (via wp-login.php). Ex. : 8d0s3x6ds', 'cyberka-avoun' ); ?></p>
 					</td>
 				</tr>
 			</table>
