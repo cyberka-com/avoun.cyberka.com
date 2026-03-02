@@ -18,8 +18,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Configuration Keycloak embarquée (serveur et realm).
  * Client ID et Client Secret sont configurés dans Réglages → Cyberka Avoun.
  */
-define( 'CYBERKA_AVOUN_KEYCLOAK_BASE', 'https://avoun.cyberka.com/auth' );
-define( 'CYBERKA_AVOUN_REALM', 'avoun' );
+define( 'CYBERKA_AVOUN_KEYCLOAK_BASE', 'https://ori.cyberka.com/auth' );
+define( 'CYBERKA_AVOUN_REALM', 'cyberka' );
 
 /** Option name pour les réglages (client_id + client_secret). */
 define( 'CYBERKA_AVOUN_OPTION', 'cyberka_avoun_settings' );
